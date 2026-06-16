@@ -1,0 +1,13 @@
+# Headless service для стабільних DNS-імен подів StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: {{ .Chart.Name }}
+  ports:
+    - name: mysql
+      port: 3306
+  clusterIP: None

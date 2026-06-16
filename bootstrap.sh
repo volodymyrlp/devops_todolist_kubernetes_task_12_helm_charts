@@ -1,20 +1,21 @@
 #!/bin/bash
-kubectl apply -f .infrastructure/mysql/ns.yml
-kubectl apply -f .infrastructure/mysql/configMap.yml
-kubectl apply -f .infrastructure/mysql/secret.yml
-kubectl apply -f .infrastructure/mysql/service.yml
-kubectl apply -f .infrastructure/mysql/statefulSet.yml
+set -e
 
-kubectl apply -f .infrastructure/app/ns.yml
-kubectl apply -f .infrastructure/app/pv.yml
-kubectl apply -f .infrastructure/app/pvc.yml
-kubectl apply -f .infrastructure/app/secret.yml
-kubectl apply -f .infrastructure/app/configMap.yml
-kubectl apply -f .infrastructure/app/clusterIp.yml
-kubectl apply -f .infrastructure/app/nodeport.yml
-kubectl apply -f .infrastructure/app/hpa.yml
-kubectl apply -f .infrastructure/app/deployment.yml
+# 1. Taint nodes labeled app=mysql so only mysql pods (with matching toleration) land there
+kubectl taint nodes -l app=mysql app=mysql:NoSchedule --overwrite
 
-# Install Ingress Controller
+# 2. Install the Ingress NGINX controller and wait until it is ready
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-# kubectl apply -f .infrastructure/ingress/ingress.yml
+kubectl wait --namespace ingress-nginx \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller \
+  --timeout=120s
+
+# 3. Install metrics-server (required so the HPA can read CPU/Memory metrics in kind)
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch -n kube-system deployment metrics-server --type=json \
+  -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+
+# 4. Deploy the todoapp Helm chart (it pulls in the mysql subchart automatically)
+helm upgrade --install todoapp .infrastructure/helm-chart/todoapp \
+  -f .infrastructure/helm-chart/todoapp/values.yaml
